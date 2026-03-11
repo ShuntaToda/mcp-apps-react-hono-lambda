@@ -1,0 +1,7 @@
+{
+  "app": "npx tsx packages/infra/lib/app.ts",
+  "watch": {
+    "include": ["packages/server/**", "packages/infra/**"],
+    "exclude": ["node_modules", "cdk.out", "dist"]
+  }
+}

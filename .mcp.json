@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "line-chart-mcp": {
+      "type": "http",
+      "url": "https://oohuqbhplwocq5bonkdwaqqply0horkb.lambda-url.ap-northeast-1.on.aws/mcp"
+    }
+  }
+}

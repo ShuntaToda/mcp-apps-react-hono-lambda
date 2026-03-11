@@ -1,0 +1,22 @@
+{
+  "name": "line-chart-mcp-apps",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @line-chart-mcp/server dev",
+    "build": "pnpm --filter @line-chart-mcp/app build && pnpm --filter @line-chart-mcp/server build",
+    "typecheck": "pnpm -r typecheck",
+    "cdk": "cdk",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy",
+    "diff": "cdk diff"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.1110.0",
+    "esbuild": "^0.27.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@line-chart-mcp/app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.2.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.5.2",
+    "vite": "^6.3.5",
+    "vite-plugin-singlefile": "^2.0.3"
+  }
+}

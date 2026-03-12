@@ -1,5 +1,5 @@
 {
-  "name": "@line-chart-mcp/server",
+  "name": "@shop-mcp/server",
   "version": "1.0.0",
   "private": true,
   "type": "module",

@@ -1,9 +1,9 @@
 {
-  "name": "line-chart-mcp-apps",
+  "name": "shop-mcp-apps",
   "private": true,
   "scripts": {
-    "dev": "pnpm --filter @line-chart-mcp/server dev",
-    "build": "pnpm --filter @line-chart-mcp/app build && pnpm --filter @line-chart-mcp/server build",
+    "dev": "pnpm --filter @shop-mcp/server dev",
+    "build": "pnpm --filter @shop-mcp/app build && pnpm --filter @shop-mcp/server build",
     "typecheck": "pnpm -r typecheck",
     "cdk": "cdk",
     "synth": "cdk synth",

@@ -1,5 +1,5 @@
 {
-  "name": "@line-chart-mcp/app",
+  "name": "@shop-mcp/app",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -15,9 +15,11 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "@tailwindcss/vite": "^4.2.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.5.2",
+    "tailwindcss": "^4.2.1",
     "vite": "^6.3.5",
     "vite-plugin-singlefile": "^2.0.3"
   }

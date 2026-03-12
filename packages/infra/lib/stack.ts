@@ -3,6 +3,7 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as nodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import { Construct } from "constructs";
 import * as path from "path";
+import * as fs from "fs";
 
 export class HonoMcpStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -12,12 +13,16 @@ export class HonoMcpStack extends cdk.Stack {
       terminationProtection: false,
     });
 
-    cdk.Aspects.of(this).add(new cdk.Tag("Project", "line-chart-mcp"));
+    cdk.Aspects.of(this).add(new cdk.Tag("Project", "shop-mcp"));
     // 全リソースを cdk destroy で完全削除可能にする
     this.applyRemovalPolicy();
 
     const repoRoot = path.resolve(import.meta.dirname, "../../..");
     const serverDir = path.join(repoRoot, "packages/server");
+
+    // .env から FUNCTION_URL を読み込み、esbuild の define でビルド時に埋め込む
+    const envFile = fs.readFileSync(path.join(repoRoot, ".env"), "utf-8");
+    const envFunctionUrl = envFile.match(/FUNCTION_URL=(.+)/)?.[1]?.trim() ?? "";
 
     // Lambda関数: esbuild で packages/server/src/lambda.ts をESMバンドル
     const fn = new nodejs.NodejsFunction(this, "McpFunction", {
@@ -37,6 +42,10 @@ export class HonoMcpStack extends cdk.Stack {
         esbuildArgs: {
           "--conditions": "module",
         },
+        // .html ファイルをテキストとしてバンドルに埋め込む（MCP Apps UI用）
+        loader: { ".html": "text" },
+        // .env の FUNCTION_URL をビルド時に埋め込む（CSP設定用）
+        define: { "process.env.FUNCTION_URL": JSON.stringify(envFunctionUrl) },
         // ESMで require() を使うパッケージ向けの polyfill
         banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
       },
@@ -47,6 +56,7 @@ export class HonoMcpStack extends cdk.Stack {
       authType: lambda.FunctionUrlAuthType.NONE,
       invokeMode: lambda.InvokeMode.RESPONSE_STREAM,
     });
+
 
     new cdk.CfnOutput(this, "FunctionUrl", {
       value: functionUrl.url,

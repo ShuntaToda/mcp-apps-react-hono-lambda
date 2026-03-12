@@ -323,6 +323,170 @@ TTYなし環境では `cdk deploy` を直接呼ぶ必要あり。
 aws-vault exec main -- cdk destroy --app "npx tsx packages/infra/lib/app.ts"
 ```
 
+### Step 11: shop-mcp（商品一覧アプリ）への変更
+
+line-chart-mcp から shop-mcp にリニューアル。Hono APIから商品データを返し、MCP Apps UIで一覧表示。
+
+**変更内容**:
+- プロジェクト名を `shop-mcp` にリネーム（全パッケージ）
+- `registerAppTool` で `product-list` ツールを登録（カテゴリフィルタ対応）
+- Hono REST API `/api/products` でダミー商品データを返却
+- React UIで商品カードのグリッド表示（画像・名前・価格・カテゴリ）
+
+### Step 12: Lambda デプロイ時の ENOENT 問題と解決
+
+**問題**: `registerAppResource` 内の `fs.readFile(path.join(APP_DIST_DIR, "mcp-app.html"))` が Lambda 環境で `ENOENT` エラー。
+Lambda のバンドルには `packages/app/dist/mcp-app.html` が含まれず、`import.meta.dirname` からの相対パスでファイルが見つからない。
+
+**解決**: esbuild の `loader: { ".html": "text" }` を使い、ビルド時にHTMLを文字列として埋め込む。
+
+```typescript
+// packages/server/src/index.ts
+import mcpAppHtml from "../../app/dist/mcp-app.html";
+
+// registerAppResource 内で直接使用（fs.readFile 不要）
+text: mcpAppHtml
+```
+
+```typescript
+// packages/infra/lib/stack.ts - CDK bundling 設定
+bundling: {
+  loader: { ".html": "text" },  // ← 追加
+  // ...
+}
+```
+
+```typescript
+// packages/server/src/html.d.ts - TypeScript用の型定義
+declare module "*.html" {
+  const content: string;
+  export default content;
+}
+```
+
+**参考**: [yusukebe/mcp-app-with-hono](https://github.com/yusukebe/mcp-app-with-hono) も同じ `import html from '../dist/index.html'` パターン。
+
+### Step 13: MCP Apps React UIの実装パターン
+
+**`useApp` フック + `ontoolresult`**:
+```typescript
+import { useApp } from "@modelcontextprotocol/ext-apps/react";
+
+function McpApp() {
+  const [data, setData] = useState(null);
+
+  useApp({
+    appInfo: { name: "Shop App", version: "1.0.0" },
+    capabilities: {},
+    onAppCreated: (app) => {
+      app.ontoolresult = (result) => {
+        const text = result.content?.find((c) => c.type === "text")?.text;
+        if (text) setData(JSON.parse(text));
+      };
+    },
+  });
+
+  return <div>{/* data を使って描画 */}</div>;
+}
+```
+
+**ハマりポイント**:
+- `useApp` の `onAppCreated` は `connect()` 前に呼ばれるため、ハンドラ登録のタイミングは安全
+- `ontoolinput`: ツール引数が届く（AIがツールを呼んだ直後）
+- `ontoolresult`: ツール実行結果が届く（サーバーが結果を返した後）
+- 商品データのようにサーバーが返す結果を表示する場合は `ontoolresult` を使う
+
+### Step 14: MCP Apps の CSP（Content Security Policy）設定
+
+**問題**: サンドボックスiframe内で外部ドメインの画像（`placehold.co`）が読み込めない。
+
+**解決**: `registerAppResource` の `contents` 内の `_meta.ui.csp` で外部ドメインを許可する。
+
+```typescript
+registerAppResource(server, uri, uri, { mimeType: RESOURCE_MIME_TYPE }, async () => ({
+  contents: [{
+    uri,
+    mimeType: RESOURCE_MIME_TYPE,
+    text: mcpAppHtml,
+    // CSP設定は contents の _meta.ui に配置する（config直下ではない）
+    _meta: {
+      ui: {
+        csp: {
+          resourceDomains: ["https://placehold.co"],  // img-src, script-src 等
+          // connectDomains: ["https://api.example.com"],  // fetch/WebSocket用
+        },
+      },
+    },
+  }],
+}));
+```
+
+**注意**: CSP設定は `registerAppResource` の第4引数（config）ではなく、コールバックが返す `contents[].meta.ui.csp` に配置する必要がある。config直下に置くと `ts(2353)` エラー。
+
+## データフロー
+
+### 全体像
+
+```
+ユーザー → Claude Desktop → MCP Server (Lambda/Hono) → React UI (iframe)
+                                  ↑                          |
+                                  |    fetch /api/products    |
+                                  +--------------------------+
+```
+
+### 詳細フロー
+
+```
+1. ユーザーが「商品一覧を見せて」と入力
+      |
+      v
+2. Claude (AI) が product-list ツールを呼び出す
+      |
+      +--→ [MCP Server] registerAppTool のハンドラ実行
+      |         → "Displaying all products." を返却（確認メッセージのみ）
+      |
+      +--→ [Claude Desktop] ツールの _meta.ui.resourceUri を検出
+      |         → ui://product-list/mcp-app.html のリソースを取得
+      |         → [MCP Server] registerAppResource が HTML を返却
+      |         → サンドボックス iframe に HTML をレンダリング
+      |
+      v
+3. React UI が iframe 内で起動
+      |
+      +--→ useApp() で MCP ホスト (Claude Desktop) に接続
+      |
+      +--→ ontoolinput でツール引数を受信
+      |         → { category: "electronics" } など
+      |
+      v
+4. React が Hono API に直接 fetch
+      |
+      +--→ GET /api/products?category=electronics
+      |         → [Hono] ダミー商品データをフィルタして JSON 返却
+      |
+      v
+5. React UI が商品カードのグリッドを描画
+      +--→ 商品画像は placehold.co から読み込み（CSP で許可）
+```
+
+### 各コンポーネントの役割
+
+| コンポーネント | 役割 |
+|------------|------|
+| **Hono** | REST API (`/api/products`) + MCP Streamable HTTP Transport (`/mcp`) |
+| **MCP Server** | ツール定義 (`product-list`) + UI リソース配信 (`ui://...`) |
+| **React UI** | `ontoolinput` で引数受信 → Hono API を fetch → 商品一覧を描画 |
+| **Lambda** | Hono アプリのホスティング（Function URL で公開） |
+| **Claude Desktop** | MCP クライアント + iframe ホスト |
+
+### ポイント
+
+- **Hono は2つの役割**を持つ: MCP Transport と REST API サーバー
+- **React UI は Hono API を直接 fetch** する（MCP ツール結果経由ではない）
+- MCP ツールの戻り値はメッセージのみ、**商品データは Hono API から取得**
+- `ontoolinput` でカテゴリ引数を受け取り、API の query parameter として使用
+- CSP の `connectDomains` で Lambda Function URL への fetch を許可
+
 ## 調査で判明した事実
 
 - `@modelcontextprotocol/hono` パッケージは**存在しない**（公式はHono側の `@hono/mcp`）
@@ -332,3 +496,12 @@ aws-vault exec main -- cdk destroy --app "npx tsx packages/infra/lib/app.ts"
 - `vite-plugin-singlefile` で全JS/CSSを単一HTMLにインライン化するのが公式パターン
 - MCP Apps の MIME type は `"text/html;profile=mcp-app"`
 - 公式スターターテンプレート: `@modelcontextprotocol/server-basic-react`
+
+
+
+"mcpServers": {
+  "line-chart-mcp": {
+    "type": "http",
+    "url": "https://oohuqbhplwocq5bonkdwaqqply0horkb.lambda-url.ap-northeast-1.on.aws/mcp"
+    }
+}

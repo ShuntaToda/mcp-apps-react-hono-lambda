@@ -423,6 +423,100 @@ registerAppResource(server, uri, uri, { mimeType: RESOURCE_MIME_TYPE }, async ()
 
 **注意**: CSP設定は `registerAppResource` の第4引数（config）ではなく、コールバックが返す `contents[].meta.ui.csp` に配置する必要がある。config直下に置くと `ts(2353)` エラー。
 
+### Step 15: React から Hono API を fetch する構成に変更
+
+**変更前**: MCP ツール結果 (`ontoolresult`) で商品データを受け取っていた → Hono API を使っていなかった
+**変更後**: `ontoolinput` でツール引数を受け取り、React が Hono API `/api/products` を直接 fetch
+
+**サーバー側**: ツールの戻り値を確認メッセージのみに変更（データは API 経由で取得するため）
+```typescript
+async ({ category }) => {
+  const message = category
+    ? `Displaying ${category} products.`
+    : "Displaying all products.";
+  return { content: [{ type: "text", text: message }] };
+},
+```
+
+**React側**: `ontoolinput` → `useEffect` で fetch
+```typescript
+app.ontoolinput = (params) => {
+  const args = params.arguments as { category?: string } | undefined;
+  setCategory(args?.category);
+  setShouldFetch(true);
+};
+
+// useEffect 内で
+fetch(`${API_BASE_URL}/api/products?category=${category}`)
+```
+
+**CSP追加**: iframe から Lambda Function URL への fetch を許可
+```typescript
+csp: {
+  resourceDomains: ["https://placehold.co"],
+  connectDomains: [process.env.FUNCTION_URL ?? ""],  // esbuild define で埋め込み
+},
+```
+
+### Step 16: .env による URL 一元管理
+
+**問題**: Lambda Function URL がサーバー（CSP）・フロント（API fetch）・CDK（esbuild define）に散在していた
+
+**解決**: ルートの `.env` に `FUNCTION_URL` を1つだけ定義し、ビルド時に各所に埋め込む
+
+```
+# .env（ルート）
+FUNCTION_URL=https://xxxxx.lambda-url.ap-northeast-1.on.aws
+```
+
+**Vite (app)**: `loadEnv` で読み込み → `define: { API_BASE_URL: JSON.stringify(env.FUNCTION_URL) }`
+```typescript
+// vite.config.ts
+const env = loadEnv(mode, "../..", "FUNCTION_URL");
+return {
+  define: { API_BASE_URL: JSON.stringify(env.FUNCTION_URL) },
+};
+// mcp-app.tsx
+declare const API_BASE_URL: string;
+```
+
+**esbuild (server/CDK)**: `fs.readFileSync` で `.env` を読み → `define: { "process.env.FUNCTION_URL": JSON.stringify(envFunctionUrl) }`
+```typescript
+// stack.ts
+const envFile = fs.readFileSync(path.join(repoRoot, ".env"), "utf-8");
+const envFunctionUrl = envFile.match(/FUNCTION_URL=(.+)/)?.[1]?.trim() ?? "";
+// bundling.define
+define: { "process.env.FUNCTION_URL": JSON.stringify(envFunctionUrl) },
+```
+
+**注意**: CDK の `fn.addEnvironment("FUNCTION_URL", functionUrl.url)` は循環参照エラー（Lambda → Function URL → Lambda環境変数）になるため使えない。ビルド時の `define` で埋め込む。
+
+### Step 17: Tailwind CSS の導入
+
+MCP Apps の React UI に Tailwind CSS v4 を導入。`vite-plugin-singlefile` により CSS もインライン化される。
+
+**インストール**:
+```bash
+pnpm --filter @shop-mcp/app add -D tailwindcss @tailwindcss/vite
+```
+
+**設定**:
+```typescript
+// vite.config.ts
+import tailwindcss from "@tailwindcss/vite";
+plugins: [tailwindcss(), react(), viteSingleFile()],
+```
+
+```css
+/* src/index.css */
+@import "tailwindcss";
+```
+
+**ポイント**:
+- Tailwind v4 は `tailwind.config.js` 不要、`@tailwindcss/vite` プラグインのみで動作
+- `vite-plugin-singlefile` が CSS もインライン化するため、MCP Apps のサンドボックス iframe 内で問題なく動作
+- カテゴリごとの色分けバッジ、ホバーアニメーション、スピナー、レスポンシブグリッドを実装
+
 ## データフロー
 
 ### 全体像
